@@ -10,6 +10,7 @@ import com.dabi.easylocalgamekmplibrary.logging.EasyLocalGameLogger
 import com.dabi.easylocalgamekmplibrary.payload.ClientPayloadType
 import com.dabi.easylocalgamekmplibrary.payload.ServerPayloadType
 import com.dabi.easylocalgamekmplibrary.payload.fromClientPayload
+import com.dabi.easylocalgamekmplibrary.payload.getPayloadType
 import com.dabi.easylocalgamekmplibrary.payload.toServerPayload
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -225,27 +226,30 @@ class ServerManager(
         override fun onPayloadReceived(endpointId: String, payload: ByteArray) {
             EasyLocalGameLogger.d("Payload received from $endpointId (${payload.size} bytes)", TAG)
             
-            try {
-                val (clientPayloadType, _) = fromClientPayload<Any?>(payload)
-                EasyLocalGameLogger.d("Payload type: $clientPayloadType", TAG)
+            // Use getPayloadType to extract type without deserializing data
+            // (avoids issues with Any? serialization)
+            val typeStr = getPayloadType(payload)
+            val clientPayloadType = try {
+                ClientPayloadType.valueOf(typeStr)
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+            
+            EasyLocalGameLogger.d("Payload type: $typeStr (library type: $clientPayloadType)", TAG)
 
-                when (clientPayloadType) {
-                    ClientPayloadType.ESTABLISH_CONNECTION -> {
-                        EasyLocalGameLogger.i("Client $endpointId establishing connection", TAG)
-                        clientAction(ClientAction.EstablishConnection(endpointId, payload))
-                    }
-                    ClientPayloadType.ACTION_DISCONNECTED -> {
-                        EasyLocalGameLogger.i("Client $endpointId sent disconnect action", TAG)
-                        clientDisconnected(endpointId)
-                    }
-                    null -> {
-                        EasyLocalGameLogger.d("Custom payload from $endpointId", TAG)
-                        clientAction(ClientAction.PayloadAction(endpointId, payload))
-                    }
+            when (clientPayloadType) {
+                ClientPayloadType.ESTABLISH_CONNECTION -> {
+                    EasyLocalGameLogger.i("Client $endpointId establishing connection", TAG)
+                    clientAction(ClientAction.EstablishConnection(endpointId, payload))
                 }
-            } catch (e: Exception) {
-                EasyLocalGameLogger.w("Failed to parse payload from $endpointId, treating as custom: ${e.message}", TAG)
-                clientAction(ClientAction.PayloadAction(endpointId, payload))
+                ClientPayloadType.ACTION_DISCONNECTED -> {
+                    EasyLocalGameLogger.i("Client $endpointId sent disconnect action", TAG)
+                    clientDisconnected(endpointId)
+                }
+                null -> {
+                    EasyLocalGameLogger.d("Custom payload from $endpointId", TAG)
+                    clientAction(ClientAction.PayloadAction(endpointId, payload))
+                }
             }
         }
 

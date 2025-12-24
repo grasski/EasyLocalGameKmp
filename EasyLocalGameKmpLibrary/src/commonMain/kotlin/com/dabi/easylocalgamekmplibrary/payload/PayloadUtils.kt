@@ -1,6 +1,5 @@
 package com.dabi.easylocalgamekmplibrary.payload
 
-import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 
@@ -24,10 +23,26 @@ data class PayloadWrapper<T>(
     val data: T?
 )
 
+// =============================================================================
+// GENERIC PAYLOAD FUNCTIONS - For custom enum types
+// =============================================================================
+
 /**
  * Converts a payload type and data to a ByteArray for transmission.
  *
- * @param payloadType The type identifier (usually enum name)
+ * This is the main function for creating payloads. Works with any type string,
+ * including custom enum types:
+ *
+ * ```kotlin
+ * // With custom enum
+ * enum class MyPayloadType { ACTION_READY, ACTION_CALL }
+ * val payload = toPayload(MyPayloadType.ACTION_READY.name, myData)
+ *
+ * // Or with library types
+ * val payload = toPayload(ServerPayloadType.UPDATE_GAME_STATE.name, gameState)
+ * ```
+ *
+ * @param payloadType The type identifier (usually enum.name)
  * @param data The data to serialize (must be @Serializable)
  * @return ByteArray ready for Nearby Connections transmission
  */
@@ -38,7 +53,21 @@ inline fun <reified T> toPayload(payloadType: String, data: T?): ByteArray {
 }
 
 /**
- * Converts a ByteArray back to a Pair of type and data.
+ * Converts a ByteArray back to a Pair of type string and data.
+ *
+ * Returns the raw type string, so you can parse it to any enum type:
+ *
+ * ```kotlin
+ * // Get raw type string
+ * val (typeStr, data) = fromPayload<MyData>(payload)
+ * val myType = MyPayloadType.valueOf(typeStr)  // Parse to your enum
+ *
+ * // Or use directly with when expression
+ * when (typeStr) {
+ *     MyPayloadType.ACTION_READY.name -> handleReady(data)
+ *     MyPayloadType.ACTION_CALL.name -> handleCall(data)
+ * }
+ * ```
  *
  * @param payload The ByteArray received from Nearby Connections
  * @return Pair of type string and deserialized data
@@ -50,22 +79,58 @@ inline fun <reified T> fromPayload(payload: ByteArray): Pair<String, T?> {
 }
 
 /**
+ * You can use this function to convert Any type from fromPayload result
+ * to your specified type using JSON re-serialization.
+ *
+ * Useful when you first parse with Any? and then need to convert to specific type:
+ *
+ * ```kotlin
+ * val (typeStr, rawData) = fromPayload<Any?>(payload)
+ * when (typeStr) {
+ *     "CHAT_MESSAGE" -> {
+ *         val message = rawData.convertToType<ChatMessage>()
+ *     }
+ * }
+ * ```
+ */
+inline fun <reified T> Any?.convertToType(): T? {
+    if (this == null) return null
+    val json = payloadJson.encodeToString(serializer<Any?>(), this)
+    return payloadJson.decodeFromString(serializer<T>(), json)
+}
+
+// =============================================================================
+// SERVER PAYLOAD FUNCTIONS - Convenience wrappers for library types
+// =============================================================================
+
+/**
  * Converts a ServerPayloadType and data to a ByteArray.
+ *
+ * Convenience wrapper for [toPayload] with [ServerPayloadType].
  */
 inline fun <reified T> toServerPayload(payloadType: ServerPayloadType, data: T?): ByteArray {
     return toPayload(payloadType.name, data)
 }
 
 /**
- * Converts a ClientPayloadType and data to a ByteArray.
- */
-inline fun <reified T> toClientPayload(payloadType: ClientPayloadType, data: T?): ByteArray {
-    return toPayload(payloadType.name, data)
-}
-
-/**
  * Parses a payload and attempts to convert type to ServerPayloadType.
- * Returns null for type if it doesn't match any ServerPayloadType.
+ *
+ * If the type doesn't match any ServerPayloadType, returns null for the type
+ * but still returns the data. Use [fromPayload] if you need the raw type string
+ * for custom payload types.
+ *
+ * ```kotlin
+ * val (serverType, data) = fromServerPayload<GameState>(payload)
+ * when (serverType) {
+ *     ServerPayloadType.UPDATE_GAME_STATE -> handleGameState(data)
+ *     ServerPayloadType.CLIENT_CONNECTED -> handleConnected()
+ *     null -> {
+ *         // Unknown type - might be a custom payload, use fromPayload
+ *         val (typeStr, _) = fromPayload<GameState>(payload)
+ *         handleCustom(typeStr, data)
+ *     }
+ * }
+ * ```
  */
 inline fun <reified T> fromServerPayload(payload: ByteArray): Pair<ServerPayloadType?, T?> {
     val (typeStr, data) = fromPayload<T>(payload)
@@ -77,9 +142,38 @@ inline fun <reified T> fromServerPayload(payload: ByteArray): Pair<ServerPayload
     return Pair(type, data)
 }
 
+// =============================================================================
+// CLIENT PAYLOAD FUNCTIONS - Convenience wrappers for library types
+// =============================================================================
+
+/**
+ * Converts a ClientPayloadType and data to a ByteArray.
+ *
+ * Convenience wrapper for [toPayload] with [ClientPayloadType].
+ */
+inline fun <reified T> toClientPayload(payloadType: ClientPayloadType, data: T?): ByteArray {
+    return toPayload(payloadType.name, data)
+}
+
 /**
  * Parses a payload and attempts to convert type to ClientPayloadType.
- * Returns null for type if it doesn't match any ClientPayloadType.
+ *
+ * If the type doesn't match any ClientPayloadType, returns null for the type
+ * but still returns the data. Use [fromPayload] if you need the raw type string
+ * for custom payload types.
+ *
+ * ```kotlin
+ * val (clientType, data) = fromClientPayload<PlayerInfo>(payload)
+ * when (clientType) {
+ *     ClientPayloadType.ESTABLISH_CONNECTION -> handleConnection(data)
+ *     ClientPayloadType.ACTION_DISCONNECTED -> handleDisconnect()
+ *     null -> {
+ *         // Unknown type - might be a custom payload, use fromPayload
+ *         val (typeStr, _) = fromPayload<PlayerInfo>(payload)
+ *         handleCustomClientAction(typeStr, data)
+ *     }
+ * }
+ * ```
  */
 inline fun <reified T> fromClientPayload(payload: ByteArray): Pair<ClientPayloadType?, T?> {
     val (typeStr, data) = fromPayload<T>(payload)
@@ -91,12 +185,37 @@ inline fun <reified T> fromClientPayload(payload: ByteArray): Pair<ClientPayload
     return Pair(type, data)
 }
 
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
 /**
  * Helper to get just the type string from a payload without deserializing the full data.
+ *
+ * Useful when you need to check the type before deciding how to deserialize:
+ *
+ * ```kotlin
+ * val typeStr = getPayloadType(payload)
+ * when (typeStr) {
+ *     "CHAT_MESSAGE" -> {
+ *         val (_, message) = fromPayload<ChatMessage>(payload)
+ *     }
+ *     "GAME_UPDATE" -> {
+ *         val (_, state) = fromPayload<GameState>(payload)
+ *     }
+ * }
+ * ```
  */
 fun getPayloadType(payload: ByteArray): String {
     val json = payload.decodeToString()
-    // Quick extraction of type field
-    val wrapper = payloadJson.decodeFromString(PayloadWrapper.serializer(kotlinx.serialization.serializer<Any?>()), json)
-    return wrapper.type
+    // Quick extraction using simple parsing
+    val typeMatch = Regex(""""type"\s*:\s*"([^"]+)"""").find(json)
+    return typeMatch?.groupValues?.get(1) ?: ""
+}
+
+/**
+ * Check if a payload type matches a specific enum value.
+ */
+inline fun <reified E : Enum<E>> ByteArray.isPayloadType(enumValue: E): Boolean {
+    return getPayloadType(this) == enumValue.name
 }

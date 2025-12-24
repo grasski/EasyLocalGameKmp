@@ -10,7 +10,8 @@ import com.dabi.easylocalgamekmplibrary.connection.PayloadCallbacks
 import com.dabi.easylocalgamekmplibrary.logging.EasyLocalGameLogger
 import com.dabi.easylocalgamekmplibrary.payload.ClientPayloadType
 import com.dabi.easylocalgamekmplibrary.payload.ServerPayloadType
-import com.dabi.easylocalgamekmplibrary.payload.fromServerPayload
+import com.dabi.easylocalgamekmplibrary.payload.fromPayload
+import com.dabi.easylocalgamekmplibrary.payload.getPayloadType
 import com.dabi.easylocalgamekmplibrary.payload.toClientPayload
 import com.dabi.easylocalgamekmplibrary.server.ServerType
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -214,44 +215,49 @@ class ClientManager(
         override fun onPayloadReceived(endpointId: String, payload: ByteArray) {
             EasyLocalGameLogger.d("Payload received from server (${payload.size} bytes)", TAG)
             
-            try {
-                val (serverPayloadType, data) = fromServerPayload<String?>(payload)
-                EasyLocalGameLogger.d("Payload type: $serverPayloadType", TAG)
+            // Use getPayloadType to extract type without deserializing data
+            // (avoids issues with complex type serialization)
+            val typeStr = getPayloadType(payload)
+            val serverPayloadType = try {
+                ServerPayloadType.valueOf(typeStr)
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+            
+            EasyLocalGameLogger.d("Payload type: $typeStr (library type: $serverPayloadType)", TAG)
 
-                when (serverPayloadType) {
-                    ServerPayloadType.CLIENT_CONNECTED -> {
-                        val serverType = try {
-                            ServerType.valueOf(data ?: "IS_TABLE")
-                        } catch (e: IllegalArgumentException) {
-                            ServerType.IS_TABLE
-                        }
-                        EasyLocalGameLogger.i("Server confirmed connection. Type: $serverType", TAG)
-                        _clientState.update {
-                            it.copy(serverType = serverType)
-                        }
+            when (serverPayloadType) {
+                ServerPayloadType.CLIENT_CONNECTED -> {
+                    // For CLIENT_CONNECTED, data is expected to be a String (ServerType name)
+                    val (_, data) = fromPayload<String?>(payload)
+                    val serverType = try {
+                        ServerType.valueOf(data ?: "IS_TABLE")
+                    } catch (e: IllegalArgumentException) {
+                        ServerType.IS_TABLE
                     }
-                    ServerPayloadType.ROOM_IS_FULL -> {
-                        EasyLocalGameLogger.w("Server room is full, cannot join", TAG)
-                        _clientState.update {
-                            it.copy(connectionStatus = ConnectionStatusEnum.ROOM_IS_FULL)
-                        }
-                    }
-                    ServerPayloadType.UPDATE_PLAYER_STATE -> {
-                        EasyLocalGameLogger.d("Received player state update", TAG)
-                        serverAction(ServerAction.UpdatePlayerState(payload))
-                    }
-                    ServerPayloadType.UPDATE_GAME_STATE -> {
-                        EasyLocalGameLogger.d("Received game state update", TAG)
-                        serverAction(ServerAction.UpdateGameState(payload))
-                    }
-                    null -> {
-                        EasyLocalGameLogger.d("Received custom payload", TAG)
-                        serverAction(ServerAction.PayloadAction(payload))
+                    EasyLocalGameLogger.i("Server confirmed connection. Type: $serverType", TAG)
+                    _clientState.update {
+                        it.copy(serverType = serverType)
                     }
                 }
-            } catch (e: Exception) {
-                EasyLocalGameLogger.w("Failed to parse server payload, treating as custom: ${e.message}", TAG)
-                serverAction(ServerAction.PayloadAction(payload))
+                ServerPayloadType.ROOM_IS_FULL -> {
+                    EasyLocalGameLogger.w("Server room is full, cannot join", TAG)
+                    _clientState.update {
+                        it.copy(connectionStatus = ConnectionStatusEnum.ROOM_IS_FULL)
+                    }
+                }
+                ServerPayloadType.UPDATE_PLAYER_STATE -> {
+                    EasyLocalGameLogger.d("Received player state update", TAG)
+                    serverAction(ServerAction.UpdatePlayerState(payload))
+                }
+                ServerPayloadType.UPDATE_GAME_STATE -> {
+                    EasyLocalGameLogger.d("Received game state update", TAG)
+                    serverAction(ServerAction.UpdateGameState(payload))
+                }
+                null -> {
+                    EasyLocalGameLogger.d("Received custom payload", TAG)
+                    serverAction(ServerAction.PayloadAction(payload))
+                }
             }
         }
 
