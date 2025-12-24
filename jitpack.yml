@@ -1,0 +1,12 @@
+jdk:
+  - openjdk17
+
+before_install:
+  - sdk install java 17.0.12-tem
+  - sdk use java 17.0.12-tem
+
+install:
+  - ./gradlew :EasyLocalGameKmpLibrary:publishToMavenLocal
+
+# JitPack configuration for Kotlin Multiplatform library
+# This builds and publishes the Android AAR and metadata JARs
