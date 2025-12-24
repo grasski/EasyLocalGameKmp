@@ -94,7 +94,7 @@ class DemoServerViewModel(
         val messages = listOf(
             "Hello from server! 👋",
             "Random: ${(1000..9999).random()}",
-            "Server ping at ${System.currentTimeMillis()}"
+            "Server ping"
         )
         sendMessage(messages.random())
     }

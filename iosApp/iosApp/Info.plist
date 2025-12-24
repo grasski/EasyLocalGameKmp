@@ -4,5 +4,18 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>This app uses Bluetooth for local multiplayer connections.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>This app uses Bluetooth for local multiplayer connections.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app uses the local network for multiplayer connections.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_easylocalgame._tcp</string>
+		<string>_easylocalgame._udp</string>
+	</array>
 </dict>
 </plist>
